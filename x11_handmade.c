@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <math.h> // for sin in the animation
+
 static Display *display;
 static int screen;
 static Window root;
@@ -52,7 +54,8 @@ CreateWindow(int x, int y, int width, int height, int b)
 static bool Running;
 
 static Pixmap backbuffer = 0;
-void *bitmapMemory = NULL;
+uint32_t *bitmapMemory = NULL;
+int bitmapWidth, bitmapHeight;
 static XImage *bitmapHandle = NULL;
 
 static void
@@ -68,6 +71,9 @@ static void
 ResizeBitmap(Window w, int width, int height)
 {
 	printf("Resize Bitmap with %dx%d\n", width, height);
+
+	bitmapWidth = width;
+	bitmapHeight = height;
 
 	if (bitmapHandle)
 	{
@@ -121,6 +127,7 @@ main(void)
 	/* event loop */
 	int prevWidth = DEFAULT_WIDTH, prevHeight = DEFAULT_HEIGHT;
 	Running = true;
+	double foo = 0.0;
 	while (Running)
 	{
 		XNextEvent(display, &event);
@@ -156,6 +163,21 @@ main(void)
 				}
 				break;
 		}
+
+		/* some test render, idk */
+		foo += 0.01;
+		uint8_t red = (uint8_t)((sin(foo) * 0.5 + 0.5) * 255.0);
+		uint8_t green = (uint8_t)((sin(foo + 2.0) * 0.5 + 0.5) * 255.0);
+		uint8_t blue = (uint8_t)((sin(foo + 4.0) * 0.5 + 0.5) * 255.0);
+		uint32_t color = (red << 16) | (green << 8) | blue;
+
+		for (int i = 0; i < bitmapWidth * bitmapHeight; ++i)
+		{
+			bitmapMemory[i] = color;
+		}
+
+		UpdateWindow(mainWindow, gc, bitmapWidth, bitmapHeight);
+
 	}
 
 	if (bitmapHandle)
