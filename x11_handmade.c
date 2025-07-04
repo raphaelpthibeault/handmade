@@ -10,17 +10,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <math.h> // for sin in the animation
-
 static Display *display;
 static int screen;
 static Window root;
 
 static bool Running;
+static int BytesPerPixel = 4;
 
 static Pixmap backbuffer = 0;
-int bitmapWidth, bitmapHeight;
-void *bitmapMemory = NULL;
+static int bitmapWidth, bitmapHeight;
+static void *bitmapMemory = NULL;
 static XImage *bitmapHandle = NULL;
 static Atom closeAtom; /* there's no graceful exit of an X11 event loop. There are a couple of ways to do it, I choose ClientMessage */
 
@@ -75,6 +74,31 @@ UpdateWindow(Window w, GC gc, int width, int height)
 	XCopyArea(display, backbuffer, w, gc, 0, 0, width, height, 0, 0);	
 }
 
+static void
+RenderWeirdGradient(int xOffset, int yOffset)
+{
+	int pitch = bitmapWidth * BytesPerPixel; // difference between a row and the next row (which is width * bytesPerPixel)
+	uint8_t *row = bitmapMemory;
+	for (int y = 0; y < bitmapHeight; ++y)
+	{
+		uint32_t *pixel = (uint32_t *)row;
+		for (int x = 0; x < bitmapWidth; ++x)
+		{
+			/* little endian,
+			 * memory:	0xAABBGGRR 
+			 * register:0xAARRGGBB  (because OS developers didn't want to look at RGB backwards in register)
+			 * */
+			uint8_t r = 0;
+			uint8_t b = x + xOffset;
+			uint8_t g = y + yOffset;
+			*pixel++ = (r << 16) | (g << 8) | b ;
+		}
+
+		row += pitch;
+	}
+}
+
+
 /* resize bitmap meant to represent Window w */
 static void
 ResizeBitmap(Window w, int width, int height)
@@ -113,7 +137,7 @@ ResizeBitmap(Window w, int width, int height)
 			ZPixmap,
 			NULL,
 			&shmInfo,
-			width, height);
+			bitmapWidth, bitmapHeight);
 
 	if (!bitmapHandle)
 		err(EXIT_FAILURE, "XShmCreateImage() failure");
@@ -142,7 +166,7 @@ ResizeBitmap(Window w, int width, int height)
 	 * */
 	shmctl(shmInfo.shmid, IPC_RMID, NULL);
 
-	backbuffer = XCreatePixmap(display, w, width, height, xvi.depth);
+	backbuffer = XCreatePixmap(display, w, bitmapWidth, bitmapHeight, xvi.depth);
 }
 
 /* default to 1080p */
@@ -177,15 +201,13 @@ main(void)
 	/* creates image, pixmap, etc */
 	ResizeBitmap(mainWindow, DEFAULT_WIDTH, DEFAULT_HEIGHT);
 
-
-
 	closeAtom = XInternAtom(display, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols(display, mainWindow, &closeAtom, 1);
 
 	/* event loop */
 	int prevWidth = DEFAULT_WIDTH, prevHeight = DEFAULT_HEIGHT;
 	Running = true;
-	double foo = 0.0;
+	int xOffset = 0, yOffset = 0;
 	while (Running)
 	{
 		/* Process all events */
@@ -232,20 +254,12 @@ main(void)
 			}
 		}
 
-		/* some test render, idk */
-		foo += 0.01;
-		uint8_t red = (uint8_t)((sin(foo) * 0.5 + 0.5) * 255.0);
-		uint8_t green = (uint8_t)((sin(foo + 2.0) * 0.5 + 0.5) * 255.0);
-		uint8_t blue = (uint8_t)((sin(foo + 4.0) * 0.5 + 0.5) * 255.0);
-		uint32_t color = (red << 16) | (green << 8) | blue;
-
-		for (int i = 0; i < bitmapWidth * bitmapHeight; ++i)
-		{
-			((uint32_t*)bitmapMemory)[i] = color;
-		}
-
+		/* Render */
+		RenderWeirdGradient(xOffset, yOffset);
 		UpdateWindow(mainWindow, gc, bitmapWidth, bitmapHeight);
 		XFlush(display);
+
+		++xOffset;
 	}
 
 	if (bitmapHandle)
